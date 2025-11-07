@@ -23,8 +23,8 @@ interface Particle {
   maxLife: number;
 }
 
-// Display modes for character
-type DisplayMode = 'none' | 'sticks' | 'character';
+// Display modes
+type DisplayMode = 'none' | 'sticks';
 
 // Drumstick interface
 interface Drumstick {
@@ -522,10 +522,6 @@ class DrumSimulator {
         <input type="radio" name="displayMode" value="sticks" style="margin-right: 5px;">
         Sticks Only
       </label>
-      <label style="display: block; margin: 5px 0; cursor: pointer;">
-        <input type="radio" name="displayMode" value="character" style="margin-right: 5px;">
-        Full Character
-      </label>
     `;
 
     document.body.appendChild(controlsDiv);
@@ -554,12 +550,6 @@ class DrumSimulator {
       if (this.leftStick) this.leftStick.mesh.visible = true;
       if (this.rightStick) this.rightStick.mesh.visible = true;
       if (this.kickPedal) this.kickPedal.group.visible = true;
-    } else if (this.displayMode === 'character') {
-      if (this.leftStick) this.leftStick.mesh.visible = true;
-      if (this.rightStick) this.rightStick.mesh.visible = true;
-      if (this.kickPedal) this.kickPedal.group.visible = true;
-      if (this.character) this.character.group.visible = true;
-      if (this.chair) this.chair.visible = true;
     }
   }
 
@@ -701,11 +691,6 @@ class DrumSimulator {
       drumPosition.y + 0.3,
       drumPosition.z
     );
-
-    // Animate arm movement if character is visible
-    if (this.displayMode === 'character' && this.character) {
-      this.animateArm(isLeftSide, 180);
-    }
   }
 
   private animateKickPedal(): void {
@@ -804,29 +789,6 @@ class DrumSimulator {
 
   private easeInCubic(t: number): number {
     return t * t * t;
-  }
-
-  private animateArm(isLeft: boolean, duration: number): void {
-    if (!this.character) return;
-
-    const arm = isLeft ? this.character.leftArm : this.character.rightArm;
-    const forearm = isLeft
-      ? this.character.leftForearm
-      : this.character.rightForearm;
-
-    // Store original rotations
-    const originalArmRotation = arm.rotation.clone();
-    const originalForearmRotation = forearm.rotation.clone();
-
-    // Swing arm forward
-    arm.rotation.x = -Math.PI / 4;
-    forearm.rotation.x = -Math.PI / 6;
-
-    // Return to original
-    setTimeout(() => {
-      arm.rotation.copy(originalArmRotation);
-      forearm.rotation.copy(originalForearmRotation);
-    }, duration);
   }
 
   private spawnParticles(drumPiece: DrumPiece): void {
