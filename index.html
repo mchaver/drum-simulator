@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drum Simulator</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: linear-gradient(to bottom, #1a1a2e, #0f0f1e);
+        font-family: 'Courier New', monospace;
+      }
+      #info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: #00ff00;
+        font-size: 14px;
+        text-shadow: 2px 2px 0px #003300;
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border: 2px solid #00ff00;
+      }
+      #info h1 {
+        margin: 0 0 10px 0;
+        font-size: 20px;
+      }
+      #info .key {
+        display: inline-block;
+        background: #003300;
+        padding: 2px 6px;
+        margin: 2px;
+        border: 1px solid #00ff00;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info">
+      <h1>🥁 DRUM SIMULATOR</h1>
+      <div>
+        <span class="key">Q</span> Kick
+        <span class="key">W</span> Snare
+        <span class="key">E</span> Hi-Hat
+      </div>
+      <div>
+        <span class="key">A</span> Tom 1
+        <span class="key">S</span> Tom 2
+        <span class="key">D</span> Crash
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
