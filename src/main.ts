@@ -32,6 +32,9 @@ interface Drumstick {
   originalPosition: THREE.Vector3;
   originalRotation: THREE.Euler;
   isAnimating: boolean;
+  targetPosition: THREE.Vector3 | null;
+  animationProgress: number;
+  animationPhase: 'down' | 'up' | 'idle';
 }
 
 // Character parts
@@ -193,14 +196,14 @@ class DrumSimulator {
     drum.position.set(x, y, z);
 
     // Add a top surface
-    const topGeometry = new THREE.CircleGeometry(radius, 8);
+    const topGeometry = new THREE.CircleGeometry(radius * 0.98, 8);
     const topMaterial = new THREE.MeshPhongMaterial({
       color: color * 0.7,
       ...PS1_MATERIAL_CONFIG,
     });
     const top = new THREE.Mesh(topGeometry, topMaterial);
     top.rotation.x = -Math.PI / 2;
-    top.position.set(x, y + height / 2, z);
+    top.position.set(x, y + height / 2 + 0.01, z);
 
     this.scene.add(drum);
     this.scene.add(top);
@@ -290,6 +293,9 @@ class DrumSimulator {
       originalPosition: leftStickGroup.position.clone(),
       originalRotation: leftStickGroup.rotation.clone(),
       isAnimating: false,
+      targetPosition: null,
+      animationProgress: 0,
+      animationPhase: 'idle',
     };
 
     // Right stick
@@ -308,6 +314,9 @@ class DrumSimulator {
       originalPosition: rightStickGroup.position.clone(),
       originalRotation: rightStickGroup.rotation.clone(),
       isAnimating: false,
+      targetPosition: null,
+      animationProgress: 0,
+      animationPhase: 'idle',
     };
   }
 
@@ -321,7 +330,7 @@ class DrumSimulator {
       ...PS1_MATERIAL_CONFIG,
     });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.position.set(0, 1.3, -0.2);
+    body.position.set(0, 1.3, -1.5);
     characterGroup.add(body);
 
     // Head
@@ -331,7 +340,7 @@ class DrumSimulator {
       ...PS1_MATERIAL_CONFIG,
     });
     const head = new THREE.Mesh(headGeometry, headMaterial);
-    head.position.set(0, 1.75, -0.2);
+    head.position.set(0, 1.75, -1.5);
     characterGroup.add(head);
 
     // Left arm (upper arm)
@@ -341,26 +350,26 @@ class DrumSimulator {
       ...PS1_MATERIAL_CONFIG,
     });
     const leftArm = new THREE.Mesh(armGeometry, armMaterial);
-    leftArm.position.set(-0.28, 1.4, -0.2);
+    leftArm.position.set(-0.28, 1.4, -1.5);
     leftArm.rotation.z = Math.PI / 6;
     characterGroup.add(leftArm);
 
     // Right arm (upper arm)
     const rightArm = new THREE.Mesh(armGeometry, armMaterial);
-    rightArm.position.set(0.28, 1.4, -0.2);
+    rightArm.position.set(0.28, 1.4, -1.5);
     rightArm.rotation.z = -Math.PI / 6;
     characterGroup.add(rightArm);
 
     // Left forearm
     const forearmGeometry = new THREE.CylinderGeometry(0.06, 0.06, 0.35, 6);
     const leftForearm = new THREE.Mesh(forearmGeometry, armMaterial);
-    leftForearm.position.set(-0.45, 1.15, -0.1);
+    leftForearm.position.set(-0.45, 1.15, -1.4);
     leftForearm.rotation.z = Math.PI / 3;
     characterGroup.add(leftForearm);
 
     // Right forearm
     const rightForearm = new THREE.Mesh(forearmGeometry, armMaterial);
-    rightForearm.position.set(0.45, 1.15, -0.1);
+    rightForearm.position.set(0.45, 1.15, -1.4);
     rightForearm.rotation.z = -Math.PI / 3;
     characterGroup.add(rightForearm);
 
@@ -387,22 +396,22 @@ class DrumSimulator {
       ...PS1_MATERIAL_CONFIG,
     });
     const seat = new THREE.Mesh(seatGeometry, chairMaterial);
-    seat.position.set(0, 1.0, -0.2);
+    seat.position.set(0, 1.0, -1.5);
     chairGroup.add(seat);
 
     // Backrest
     const backGeometry = new THREE.BoxGeometry(0.5, 0.4, 0.05);
     const back = new THREE.Mesh(backGeometry, chairMaterial);
-    back.position.set(0, 1.2, -0.4);
+    back.position.set(0, 1.2, -1.7);
     chairGroup.add(back);
 
     // Legs (4 legs)
     const legGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1.0, 6);
     const positions = [
-      [-0.2, 0.5, -0.05],
-      [0.2, 0.5, -0.05],
-      [-0.2, 0.5, -0.35],
-      [0.2, 0.5, -0.35],
+      [-0.2, 0.5, -1.35],
+      [0.2, 0.5, -1.35],
+      [-0.2, 0.5, -1.65],
+      [0.2, 0.5, -1.65],
     ];
 
     positions.forEach((pos) => {
@@ -602,34 +611,75 @@ class DrumSimulator {
     if (!stick || stick.isAnimating) return;
 
     stick.isAnimating = true;
+    stick.animationPhase = 'down';
+    stick.animationProgress = 0;
 
     // Calculate target position (above the drum)
-    const targetPos = new THREE.Vector3(
+    stick.targetPosition = new THREE.Vector3(
       drumPosition.x,
       drumPosition.y + 0.3,
       drumPosition.z
     );
 
-    // Store original position
-    const originalPos = stick.originalPosition.clone();
-
-    // Animate to hit position
-    const hitDuration = 80;
-    const returnDuration = 100;
-
-    // Move to drum
-    stick.mesh.position.copy(targetPos);
-
-    // Return to original position
-    setTimeout(() => {
-      stick.mesh.position.copy(originalPos);
-      stick.isAnimating = false;
-    }, hitDuration + returnDuration);
-
     // Animate arm movement if character is visible
     if (this.displayMode === 'character' && this.character) {
-      this.animateArm(isLeftSide, hitDuration + returnDuration);
+      this.animateArm(isLeftSide, 180);
     }
+  }
+
+  private updateDrumsticks(deltaTime: number): void {
+    const sticks = [this.leftStick, this.rightStick];
+
+    sticks.forEach((stick) => {
+      if (!stick || !stick.isAnimating || !stick.targetPosition) return;
+
+      const speed = 8; // Animation speed multiplier
+      stick.animationProgress += deltaTime * speed;
+
+      if (stick.animationPhase === 'down') {
+        // Move down to drum
+        const t = Math.min(stick.animationProgress, 1);
+        // Use easing function for smooth motion
+        const eased = this.easeOutCubic(t);
+
+        stick.mesh.position.lerpVectors(
+          stick.originalPosition,
+          stick.targetPosition,
+          eased
+        );
+
+        if (t >= 1) {
+          stick.animationPhase = 'up';
+          stick.animationProgress = 0;
+        }
+      } else if (stick.animationPhase === 'up') {
+        // Move back up to original position
+        const t = Math.min(stick.animationProgress, 1);
+        const eased = this.easeInCubic(t);
+
+        stick.mesh.position.lerpVectors(
+          stick.targetPosition,
+          stick.originalPosition,
+          eased
+        );
+
+        if (t >= 1) {
+          stick.animationPhase = 'idle';
+          stick.isAnimating = false;
+          stick.targetPosition = null;
+          stick.animationProgress = 0;
+          stick.mesh.position.copy(stick.originalPosition);
+        }
+      }
+    });
+  }
+
+  private easeOutCubic(t: number): number {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  private easeInCubic(t: number): number {
+    return t * t * t;
   }
 
   private animateArm(isLeft: boolean, duration: number): void {
@@ -956,6 +1006,9 @@ class DrumSimulator {
 
     // Update particles
     this.updateParticles(deltaTime);
+
+    // Update drumstick animations
+    this.updateDrumsticks(deltaTime);
 
     this.renderer.render(this.scene, this.camera);
   }
