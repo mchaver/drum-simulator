@@ -100,7 +100,7 @@ class DrumSimulator {
     this.mouse = new THREE.Vector2();
 
     // Camera controls
-    this.lookAtPoint = new THREE.Vector3(0, 1, 0);
+    this.lookAtPoint = new THREE.Vector3(0, 0.9, -0.5);
     this.updateCameraPosition();
 
     // Setup scene
@@ -152,29 +152,29 @@ class DrumSimulator {
   }
 
   private createDrumSet(): void {
-    // Kick drum (center, back)
-    this.createDrum(0, 0.6, -0.5, 0.8, 0.6, 0xff4444, 'Q', 'Kick');
+    // Kick drum - on ground, centered
+    this.createDrum(0, 0.4, -0.8, 0.45, 0.5, 0xff4444, 'Q', 'Kick', 0, 0);
 
-    // Snare (left front)
-    this.createDrum(-1, 1.2, 0.5, 0.5, 0.3, 0xcccccc, 'W', 'Snare');
+    // Snare - between legs, slightly left, angled up toward drummer
+    this.createDrum(-0.35, 0.95, -0.5, 0.35, 0.25, 0xcccccc, 'W', 'Snare', Math.PI / 12, 0);
 
-    // Hi-hat (left, higher)
-    this.createCymbal(-1.5, 1.5, 0.3, 0.4, 0xffff00, 'E', 'Hi-Hat');
+    // Hi-hat - left of snare, angled
+    this.createCymbal(-0.8, 1.1, -0.3, 0.3, 0xffff00, 'E', 'Hi-Hat', Math.PI / 8);
 
-    // Tom 1 (left-center, higher)
-    this.createDrum(-0.5, 1.3, -0.2, 0.45, 0.35, 0x4444ff, 'A', 'Tom 1');
+    // Tom 1 - small rack tom, mounted above kick, left side
+    this.createDrum(-0.25, 1.2, -0.9, 0.3, 0.28, 0x4444ff, 'A', 'Tom 1', Math.PI / 6, -Math.PI / 12);
 
-    // Tom 2 (right-center, higher)
-    this.createDrum(0.5, 1.3, -0.2, 0.45, 0.35, 0x44ff44, 'S', 'Tom 2');
+    // Tom 2 - medium rack tom, mounted above kick, right side
+    this.createDrum(0.25, 1.2, -0.9, 0.35, 0.3, 0x44ff44, 'S', 'Tom 2', Math.PI / 6, Math.PI / 12);
 
-    // Floor tom (right front, lower)
-    this.createDrum(1.2, 0.9, 0.5, 0.55, 0.5, 0xff44ff, 'F', 'Floor Tom');
+    // Floor tom - right side with legs, angled toward drummer
+    this.createDrum(0.8, 0.6, -0.4, 0.4, 0.42, 0xff44ff, 'F', 'Floor Tom', Math.PI / 8, Math.PI / 6);
 
-    // Crash cymbal (left-back, higher)
-    this.createCymbal(1.5, 1.8, 0, 0.5, 0xffaa00, 'D', 'Crash');
+    // Crash cymbal - left-back area on stand
+    this.createCymbal(-0.9, 1.5, -0.9, 0.4, 0xffaa00, 'D', 'Crash', Math.PI / 10);
 
-    // Ride cymbal (right-back, higher)
-    this.createCymbal(1.8, 1.6, -0.5, 0.55, 0xffdd44, 'R', 'Ride');
+    // Ride cymbal - right-back area on stand
+    this.createCymbal(1.0, 1.4, -0.9, 0.45, 0xffdd44, 'R', 'Ride', Math.PI / 12);
   }
 
   private createDrum(
@@ -185,7 +185,9 @@ class DrumSimulator {
     height: number,
     color: number,
     key: string,
-    name: string
+    name: string,
+    rotationX: number = 0,
+    rotationY: number = 0
   ): void {
     const geometry = new THREE.CylinderGeometry(radius, radius, height, 8);
     const material = new THREE.MeshPhongMaterial({
@@ -194,6 +196,7 @@ class DrumSimulator {
     });
     const drum = new THREE.Mesh(geometry, material);
     drum.position.set(x, y, z);
+    drum.rotation.set(rotationX, rotationY, 0);
 
     // Add a top surface
     const topGeometry = new THREE.CircleGeometry(radius * 0.98, 8);
@@ -203,10 +206,16 @@ class DrumSimulator {
     });
     const top = new THREE.Mesh(topGeometry, topMaterial);
     top.rotation.x = -Math.PI / 2;
-    top.position.set(x, y + height / 2 + 0.01, z);
+
+    // Apply same rotations as drum, then add the top rotation
+    const topGroup = new THREE.Group();
+    topGroup.position.set(x, y, z);
+    topGroup.rotation.set(rotationX, rotationY, 0);
+    top.position.y = height / 2 + 0.01;
+    topGroup.add(top);
 
     this.scene.add(drum);
-    this.scene.add(top);
+    this.scene.add(topGroup);
 
     this.drumPieces.push({
       mesh: drum,
@@ -223,7 +232,8 @@ class DrumSimulator {
     radius: number,
     color: number,
     key: string,
-    name: string
+    name: string,
+    rotationX: number = 0
   ): void {
     const geometry = new THREE.CylinderGeometry(radius, radius, 0.05, 16);
     const material = new THREE.MeshPhongMaterial({
@@ -233,15 +243,16 @@ class DrumSimulator {
     });
     const cymbal = new THREE.Mesh(geometry, material);
     cymbal.position.set(x, y, z);
+    cymbal.rotation.x = rotationX;
 
     // Stand
-    const standGeometry = new THREE.CylinderGeometry(0.02, 0.02, y - 0.5, 6);
+    const standGeometry = new THREE.CylinderGeometry(0.02, 0.02, y - 0.1, 6);
     const standMaterial = new THREE.MeshPhongMaterial({
       color: 0x333333,
       ...PS1_MATERIAL_CONFIG,
     });
     const stand = new THREE.Mesh(standGeometry, standMaterial);
-    stand.position.set(x, y / 2, z);
+    stand.position.set(x, (y - 0.1) / 2 + 0.1, z);
 
     this.scene.add(cymbal);
     this.scene.add(stand);
@@ -283,8 +294,8 @@ class DrumSimulator {
     leftStickMesh.rotation.z = Math.PI / 2;
     leftStickGroup.add(leftStickMesh);
 
-    // Position above hi-hat/left side
-    leftStickGroup.position.set(-1.5, 1.8, 0.3);
+    // Position above hi-hat/left side (natural resting position)
+    leftStickGroup.position.set(-0.6, 1.3, -0.4);
     leftStickGroup.rotation.set(0, 0, 0);
     this.scene.add(leftStickGroup);
 
@@ -304,8 +315,8 @@ class DrumSimulator {
     rightStickMesh.rotation.z = Math.PI / 2;
     rightStickGroup.add(rightStickMesh);
 
-    // Position above snare/right side
-    rightStickGroup.position.set(-1, 1.5, 0.5);
+    // Position above snare/right side (natural resting position)
+    rightStickGroup.position.set(0.15, 1.2, -0.5);
     rightStickGroup.rotation.set(0, 0, 0);
     this.scene.add(rightStickGroup);
 
