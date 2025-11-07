@@ -15,12 +15,30 @@ interface DrumPiece {
   name: string;
 }
 
+// Particle interface
+interface Particle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  life: number;
+  maxLife: number;
+}
+
 class DrumSimulator {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private drumPieces: DrumPiece[] = [];
   private audioContext: AudioContext;
+  private raycaster: THREE.Raycaster;
+  private mouse: THREE.Vector2;
+  private cameraDistance: number = 6;
+  private cameraAngleY: number = 0;
+  private cameraAngleX: number = Math.PI / 6; // 30 degrees up
+  private isDragging: boolean = false;
+  private previousMousePosition = { x: 0, y: 0 };
+  private lookAtPoint: THREE.Vector3;
+  private particles: Particle[] = [];
+  private lastFrameTime: number = 0;
 
   constructor() {
     // Scene setup
@@ -47,6 +65,14 @@ class DrumSimulator {
     // Audio context
     this.audioContext = new AudioContext();
 
+    // Raycaster for mouse interaction
+    this.raycaster = new THREE.Raycaster();
+    this.mouse = new THREE.Vector2();
+
+    // Camera controls
+    this.lookAtPoint = new THREE.Vector3(0, 1, 0);
+    this.updateCameraPosition();
+
     // Setup scene
     this.setupLights();
     this.createDrumSet();
@@ -55,6 +81,12 @@ class DrumSimulator {
     // Event listeners
     window.addEventListener('resize', () => this.onWindowResize());
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
+    window.addEventListener('click', (e) => this.onClick(e));
+    window.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+    window.addEventListener('mouseup', () => this.onMouseUp());
+    window.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Start animation loop
     this.animate();
@@ -96,8 +128,14 @@ class DrumSimulator {
     // Tom 2 (right-center, higher)
     this.createDrum(0.5, 1.3, -0.2, 0.45, 0.35, 0x44ff44, 'S', 'Tom 2');
 
-    // Crash cymbal (right, higher)
+    // Floor tom (right front, lower)
+    this.createDrum(1.2, 0.9, 0.5, 0.55, 0.5, 0xff44ff, 'F', 'Floor Tom');
+
+    // Crash cymbal (left-back, higher)
     this.createCymbal(1.5, 1.8, 0, 0.5, 0xffaa00, 'D', 'Crash');
+
+    // Ride cymbal (right-back, higher)
+    this.createCymbal(1.8, 1.6, -0.5, 0.55, 0xffdd44, 'R', 'Ride');
   }
 
   private createDrum(
@@ -204,6 +242,81 @@ class DrumSimulator {
     }
   }
 
+  private onClick(event: MouseEvent): void {
+    // Only trigger click if we weren't dragging
+    if (this.isDragging) return;
+
+    // Calculate mouse position in normalized device coordinates (-1 to +1)
+    this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // Update the raycaster with the camera and mouse position
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+
+    // Calculate objects intersecting the picking ray
+    const drumMeshes = this.drumPieces.map((d) => d.mesh);
+    const intersects = this.raycaster.intersectObjects(drumMeshes);
+
+    // If we hit a drum, play it
+    if (intersects.length > 0) {
+      const clickedMesh = intersects[0].object as THREE.Mesh;
+      const drumPiece = this.drumPieces.find((d) => d.mesh === clickedMesh);
+
+      if (drumPiece) {
+        this.hitDrum(drumPiece);
+        this.playSound(drumPiece.name);
+      }
+    }
+  }
+
+  private onMouseDown(event: MouseEvent): void {
+    // Right click or ctrl+click to rotate camera
+    if (event.button === 2 || event.ctrlKey) {
+      event.preventDefault();
+      this.isDragging = true;
+      this.previousMousePosition = { x: event.clientX, y: event.clientY };
+    }
+  }
+
+  private onMouseMove(event: MouseEvent): void {
+    if (!this.isDragging) return;
+
+    const deltaX = event.clientX - this.previousMousePosition.x;
+    const deltaY = event.clientY - this.previousMousePosition.y;
+
+    // Update camera angles
+    this.cameraAngleY -= deltaX * 0.005;
+    this.cameraAngleX -= deltaY * 0.005;
+
+    // Clamp vertical angle to prevent flipping
+    this.cameraAngleX = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraAngleX));
+
+    this.previousMousePosition = { x: event.clientX, y: event.clientY };
+    this.updateCameraPosition();
+  }
+
+  private onMouseUp(): void {
+    this.isDragging = false;
+  }
+
+  private onWheel(event: WheelEvent): void {
+    event.preventDefault();
+    this.cameraDistance += event.deltaY * 0.01;
+    // Clamp distance
+    this.cameraDistance = Math.max(3, Math.min(15, this.cameraDistance));
+    this.updateCameraPosition();
+  }
+
+  private updateCameraPosition(): void {
+    // Convert spherical coordinates to cartesian
+    const x = this.cameraDistance * Math.sin(this.cameraAngleX) * Math.sin(this.cameraAngleY);
+    const y = this.cameraDistance * Math.cos(this.cameraAngleX);
+    const z = this.cameraDistance * Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY);
+
+    this.camera.position.set(x, y, z);
+    this.camera.lookAt(this.lookAtPoint);
+  }
+
   private hitDrum(drumPiece: DrumPiece): void {
     // Animate drum hit
     drumPiece.mesh.position.y = drumPiece.originalY - 0.05;
@@ -221,6 +334,71 @@ class DrumSimulator {
     setTimeout(() => {
       material.color.copy(originalColor);
     }, 100);
+
+    // Spawn particles
+    this.spawnParticles(drumPiece);
+  }
+
+  private spawnParticles(drumPiece: DrumPiece): void {
+    const particleCount = 8;
+    const drumColor = (drumPiece.mesh.material as THREE.MeshPhongMaterial).color;
+
+    for (let i = 0; i < particleCount; i++) {
+      // Create small cube particles for PS1 aesthetic
+      const geometry = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+      const material = new THREE.MeshBasicMaterial({
+        color: drumColor,
+      });
+      const particleMesh = new THREE.Mesh(geometry, material);
+
+      // Position at drum location
+      particleMesh.position.copy(drumPiece.mesh.position);
+
+      // Random velocity
+      const angle = (Math.PI * 2 * i) / particleCount;
+      const speed = 0.5 + Math.random() * 0.5;
+      const velocity = new THREE.Vector3(
+        Math.cos(angle) * speed,
+        1 + Math.random() * 0.5, // Upward velocity
+        Math.sin(angle) * speed
+      );
+
+      this.scene.add(particleMesh);
+
+      this.particles.push({
+        mesh: particleMesh,
+        velocity,
+        life: 0,
+        maxLife: 0.5, // 0.5 seconds lifetime
+      });
+    }
+  }
+
+  private updateParticles(deltaTime: number): void {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const particle = this.particles[i];
+      particle.life += deltaTime;
+
+      // Update position
+      particle.mesh.position.add(
+        particle.velocity.clone().multiplyScalar(deltaTime)
+      );
+
+      // Apply gravity
+      particle.velocity.y -= 9.8 * deltaTime;
+
+      // Fade out
+      const lifeRatio = particle.life / particle.maxLife;
+      const material = particle.mesh.material as THREE.MeshBasicMaterial;
+      material.opacity = 1 - lifeRatio;
+      material.transparent = true;
+
+      // Remove dead particles
+      if (particle.life >= particle.maxLife) {
+        this.scene.remove(particle.mesh);
+        this.particles.splice(i, 1);
+      }
+    }
   }
 
   private playSound(drumName: string): void {
@@ -264,11 +442,23 @@ class DrumSimulator {
         gainNode.gain.setValueAtTime(0.8, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
         break;
+      case 'Floor Tom':
+        oscillator.frequency.setValueAtTime(100, now);
+        oscillator.frequency.exponentialRampToValueAtTime(0.01, now + 0.5);
+        gainNode.gain.setValueAtTime(0.9, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        break;
       case 'Crash':
         oscillator.type = 'square';
         oscillator.frequency.setValueAtTime(4000, now);
         gainNode.gain.setValueAtTime(0.5, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+        break;
+      case 'Ride':
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(3000, now);
+        gainNode.gain.setValueAtTime(0.4, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
         break;
     }
 
@@ -285,9 +475,13 @@ class DrumSimulator {
   private animate(): void {
     requestAnimationFrame(() => this.animate());
 
-    // Subtle camera movement for that PS1 wobble
-    const time = Date.now() * 0.0001;
-    this.camera.position.x = Math.sin(time) * 0.1;
+    // Calculate delta time
+    const currentTime = performance.now() / 1000; // Convert to seconds
+    const deltaTime = this.lastFrameTime === 0 ? 0 : currentTime - this.lastFrameTime;
+    this.lastFrameTime = currentTime;
+
+    // Update particles
+    this.updateParticles(deltaTime);
 
     this.renderer.render(this.scene, this.camera);
   }
