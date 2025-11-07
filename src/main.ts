@@ -23,6 +23,41 @@ interface Particle {
   maxLife: number;
 }
 
+// Display modes
+type DisplayMode = 'none' | 'sticks';
+
+// Drumstick interface
+interface Drumstick {
+  mesh: THREE.Group;
+  originalPosition: THREE.Vector3;
+  originalRotation: THREE.Euler;
+  isAnimating: boolean;
+  targetPosition: THREE.Vector3 | null;
+  animationProgress: number;
+  animationPhase: 'down' | 'up' | 'idle';
+}
+
+// Character parts
+interface Character {
+  group: THREE.Group;
+  body: THREE.Mesh;
+  head: THREE.Mesh;
+  leftArm: THREE.Mesh;
+  rightArm: THREE.Mesh;
+  leftForearm: THREE.Mesh;
+  rightForearm: THREE.Mesh;
+}
+
+// Kick pedal interface
+interface KickPedal {
+  group: THREE.Group;
+  pedal: THREE.Mesh;
+  originalRotation: THREE.Euler;
+  isAnimating: boolean;
+  animationProgress: number;
+  animationPhase: 'down' | 'up' | 'idle';
+}
+
 class DrumSimulator {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -39,6 +74,12 @@ class DrumSimulator {
   private lookAtPoint: THREE.Vector3;
   private particles: Particle[] = [];
   private lastFrameTime: number = 0;
+  private displayMode: DisplayMode = 'none';
+  private leftStick: Drumstick | null = null;
+  private rightStick: Drumstick | null = null;
+  private character: Character | null = null;
+  private chair: THREE.Group | null = null;
+  private kickPedal: KickPedal | null = null;
 
   constructor() {
     // Scene setup
@@ -70,13 +111,23 @@ class DrumSimulator {
     this.mouse = new THREE.Vector2();
 
     // Camera controls
-    this.lookAtPoint = new THREE.Vector3(0, 1, 0);
+    this.lookAtPoint = new THREE.Vector3(0, 0.9, -0.5);
     this.updateCameraPosition();
 
     // Setup scene
     this.setupLights();
     this.createDrumSet();
     this.createGround();
+
+    // Create character system
+    this.createDrumsticks();
+    this.createKickPedal();
+    this.createCharacter();
+    this.createChair();
+    this.updateDisplayMode();
+
+    // Setup UI
+    this.setupUI();
 
     // Event listeners
     window.addEventListener('resize', () => this.onWindowResize());
@@ -113,29 +164,29 @@ class DrumSimulator {
   }
 
   private createDrumSet(): void {
-    // Kick drum (center, back)
-    this.createDrum(0, 0.6, -0.5, 0.8, 0.6, 0xff4444, 'Q', 'Kick');
+    // Kick drum - on ground, centered, upright
+    this.createDrum(0, 0.5, -0.8, 0.45, 0.6, 0xff4444, 'Q', 'Kick', Math.PI / 2, 0);
 
-    // Snare (left front)
-    this.createDrum(-1, 1.2, 0.5, 0.5, 0.3, 0xcccccc, 'W', 'Snare');
+    // Snare - between legs, slightly left, angled up toward drummer
+    this.createDrum(-0.35, 0.95, -0.5, 0.35, 0.25, 0xcccccc, 'W', 'Snare', Math.PI / 12, 0);
 
-    // Hi-hat (left, higher)
-    this.createCymbal(-1.5, 1.5, 0.3, 0.4, 0xffff00, 'E', 'Hi-Hat');
+    // Hi-hat - left of snare, angled
+    this.createCymbal(-0.8, 1.1, -0.3, 0.3, 0xffff00, 'E', 'Hi-Hat', Math.PI / 8);
 
-    // Tom 1 (left-center, higher)
-    this.createDrum(-0.5, 1.3, -0.2, 0.45, 0.35, 0x4444ff, 'A', 'Tom 1');
+    // Tom 1 - small rack tom, mounted above kick, left side
+    this.createDrum(-0.25, 1.2, -0.9, 0.3, 0.28, 0x4444ff, 'A', 'Tom 1', Math.PI / 6, -Math.PI / 12);
 
-    // Tom 2 (right-center, higher)
-    this.createDrum(0.5, 1.3, -0.2, 0.45, 0.35, 0x44ff44, 'S', 'Tom 2');
+    // Tom 2 - medium rack tom, mounted above kick, right side
+    this.createDrum(0.25, 1.2, -0.9, 0.35, 0.3, 0x44ff44, 'S', 'Tom 2', Math.PI / 6, Math.PI / 12);
 
-    // Floor tom (right front, lower)
-    this.createDrum(1.2, 0.9, 0.5, 0.55, 0.5, 0xff44ff, 'F', 'Floor Tom');
+    // Floor tom - right side with legs, angled toward drummer
+    this.createDrum(0.8, 0.6, -0.4, 0.4, 0.42, 0xff44ff, 'F', 'Floor Tom', Math.PI / 8, Math.PI / 6);
 
-    // Crash cymbal (left-back, higher)
-    this.createCymbal(1.5, 1.8, 0, 0.5, 0xffaa00, 'D', 'Crash');
+    // Crash cymbal - left-back area on stand
+    this.createCymbal(-0.9, 1.5, -0.9, 0.4, 0xffaa00, 'D', 'Crash', Math.PI / 10);
 
-    // Ride cymbal (right-back, higher)
-    this.createCymbal(1.8, 1.6, -0.5, 0.55, 0xffdd44, 'R', 'Ride');
+    // Ride cymbal - right-back area on stand
+    this.createCymbal(1.0, 1.4, -0.9, 0.45, 0xffdd44, 'R', 'Ride', Math.PI / 12);
   }
 
   private createDrum(
@@ -146,7 +197,9 @@ class DrumSimulator {
     height: number,
     color: number,
     key: string,
-    name: string
+    name: string,
+    rotationX: number = 0,
+    rotationY: number = 0
   ): void {
     const geometry = new THREE.CylinderGeometry(radius, radius, height, 8);
     const material = new THREE.MeshPhongMaterial({
@@ -155,19 +208,26 @@ class DrumSimulator {
     });
     const drum = new THREE.Mesh(geometry, material);
     drum.position.set(x, y, z);
+    drum.rotation.set(rotationX, rotationY, 0);
 
     // Add a top surface
-    const topGeometry = new THREE.CircleGeometry(radius, 8);
+    const topGeometry = new THREE.CircleGeometry(radius * 0.98, 8);
     const topMaterial = new THREE.MeshPhongMaterial({
       color: color * 0.7,
       ...PS1_MATERIAL_CONFIG,
     });
     const top = new THREE.Mesh(topGeometry, topMaterial);
     top.rotation.x = -Math.PI / 2;
-    top.position.set(x, y + height / 2, z);
+
+    // Apply same rotations as drum, then add the top rotation
+    const topGroup = new THREE.Group();
+    topGroup.position.set(x, y, z);
+    topGroup.rotation.set(rotationX, rotationY, 0);
+    top.position.y = height / 2 + 0.01;
+    topGroup.add(top);
 
     this.scene.add(drum);
-    this.scene.add(top);
+    this.scene.add(topGroup);
 
     this.drumPieces.push({
       mesh: drum,
@@ -184,7 +244,8 @@ class DrumSimulator {
     radius: number,
     color: number,
     key: string,
-    name: string
+    name: string,
+    rotationX: number = 0
   ): void {
     const geometry = new THREE.CylinderGeometry(radius, radius, 0.05, 16);
     const material = new THREE.MeshPhongMaterial({
@@ -194,15 +255,16 @@ class DrumSimulator {
     });
     const cymbal = new THREE.Mesh(geometry, material);
     cymbal.position.set(x, y, z);
+    cymbal.rotation.x = rotationX;
 
     // Stand
-    const standGeometry = new THREE.CylinderGeometry(0.02, 0.02, y - 0.5, 6);
+    const standGeometry = new THREE.CylinderGeometry(0.02, 0.02, y - 0.1, 6);
     const standMaterial = new THREE.MeshPhongMaterial({
       color: 0x333333,
       ...PS1_MATERIAL_CONFIG,
     });
     const stand = new THREE.Mesh(standGeometry, standMaterial);
-    stand.position.set(x, y / 2, z);
+    stand.position.set(x, (y - 0.1) / 2 + 0.1, z);
 
     this.scene.add(cymbal);
     this.scene.add(stand);
@@ -230,6 +292,265 @@ class DrumSimulator {
     const gridHelper = new THREE.GridHelper(20, 20, 0x00ff00, 0x003300);
     gridHelper.position.y = 0.01;
     this.scene.add(gridHelper);
+  }
+
+  private createDrumsticks(): void {
+    // Left stick
+    const leftStickGroup = new THREE.Group();
+    const stickGeometry = new THREE.CylinderGeometry(0.015, 0.02, 0.4, 6);
+    const stickMaterial = new THREE.MeshPhongMaterial({
+      color: 0x8b4513,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const leftStickMesh = new THREE.Mesh(stickGeometry, stickMaterial);
+    leftStickMesh.rotation.z = Math.PI / 2;
+    leftStickGroup.add(leftStickMesh);
+
+    // Position above hi-hat/left side (natural resting position)
+    leftStickGroup.position.set(-0.6, 1.3, -0.4);
+    leftStickGroup.rotation.set(0, 0, 0);
+    this.scene.add(leftStickGroup);
+
+    this.leftStick = {
+      mesh: leftStickGroup,
+      originalPosition: leftStickGroup.position.clone(),
+      originalRotation: leftStickGroup.rotation.clone(),
+      isAnimating: false,
+      targetPosition: null,
+      animationProgress: 0,
+      animationPhase: 'idle',
+    };
+
+    // Right stick
+    const rightStickGroup = new THREE.Group();
+    const rightStickMesh = new THREE.Mesh(stickGeometry, stickMaterial);
+    rightStickMesh.rotation.z = Math.PI / 2;
+    rightStickGroup.add(rightStickMesh);
+
+    // Position above snare/right side (natural resting position)
+    rightStickGroup.position.set(0.15, 1.2, -0.5);
+    rightStickGroup.rotation.set(0, 0, 0);
+    this.scene.add(rightStickGroup);
+
+    this.rightStick = {
+      mesh: rightStickGroup,
+      originalPosition: rightStickGroup.position.clone(),
+      originalRotation: rightStickGroup.rotation.clone(),
+      isAnimating: false,
+      targetPosition: null,
+      animationProgress: 0,
+      animationPhase: 'idle',
+    };
+  }
+
+  private createKickPedal(): void {
+    const pedalGroup = new THREE.Group();
+
+    // Pedal base plate (on ground)
+    const baseGeometry = new THREE.BoxGeometry(0.15, 0.02, 0.25);
+    const metalMaterial = new THREE.MeshPhongMaterial({
+      color: 0x888888,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const base = new THREE.Mesh(baseGeometry, metalMaterial);
+    base.position.set(0, 0.01, -0.4);
+    pedalGroup.add(base);
+
+    // Pedal plate (the part you step on)
+    const pedalGeometry = new THREE.BoxGeometry(0.12, 0.02, 0.15);
+    const pedal = new THREE.Mesh(pedalGeometry, metalMaterial);
+    pedal.position.set(0, 0.03, -0.35);
+    pedalGroup.add(pedal);
+
+    // Beater rod (connects to drum)
+    const rodGeometry = new THREE.CylinderGeometry(0.01, 0.01, 0.4, 6);
+    const rod = new THREE.Mesh(rodGeometry, metalMaterial);
+    rod.position.set(0, 0.2, -0.5);
+    rod.rotation.x = -Math.PI / 3;
+    pedalGroup.add(rod);
+
+    // Beater head (hits the drum)
+    const beaterGeometry = new THREE.SphereGeometry(0.03, 6, 6);
+    const beaterMaterial = new THREE.MeshPhongMaterial({
+      color: 0xffdddd,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const beater = new THREE.Mesh(beaterGeometry, beaterMaterial);
+    beater.position.set(0, 0.35, -0.65);
+    pedalGroup.add(beater);
+
+    this.scene.add(pedalGroup);
+
+    this.kickPedal = {
+      group: pedalGroup,
+      pedal,
+      originalRotation: pedal.rotation.clone(),
+      isAnimating: false,
+      animationProgress: 0,
+      animationPhase: 'idle',
+    };
+  }
+
+  private createCharacter(): void {
+    const characterGroup = new THREE.Group();
+
+    // Body
+    const bodyGeometry = new THREE.BoxGeometry(0.4, 0.6, 0.3);
+    const bodyMaterial = new THREE.MeshPhongMaterial({
+      color: 0x2244aa,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.set(0, 1.3, -1.5);
+    characterGroup.add(body);
+
+    // Head
+    const headGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+    const headMaterial = new THREE.MeshPhongMaterial({
+      color: 0xffdbac,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.set(0, 1.75, -1.5);
+    characterGroup.add(head);
+
+    // Left arm (upper arm)
+    const armGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.35, 6);
+    const armMaterial = new THREE.MeshPhongMaterial({
+      color: 0x2244aa,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.position.set(-0.28, 1.4, -1.5);
+    leftArm.rotation.z = Math.PI / 6;
+    characterGroup.add(leftArm);
+
+    // Right arm (upper arm)
+    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.position.set(0.28, 1.4, -1.5);
+    rightArm.rotation.z = -Math.PI / 6;
+    characterGroup.add(rightArm);
+
+    // Left forearm
+    const forearmGeometry = new THREE.CylinderGeometry(0.06, 0.06, 0.35, 6);
+    const leftForearm = new THREE.Mesh(forearmGeometry, armMaterial);
+    leftForearm.position.set(-0.45, 1.15, -1.4);
+    leftForearm.rotation.z = Math.PI / 3;
+    characterGroup.add(leftForearm);
+
+    // Right forearm
+    const rightForearm = new THREE.Mesh(forearmGeometry, armMaterial);
+    rightForearm.position.set(0.45, 1.15, -1.4);
+    rightForearm.rotation.z = -Math.PI / 3;
+    characterGroup.add(rightForearm);
+
+    this.scene.add(characterGroup);
+
+    this.character = {
+      group: characterGroup,
+      body,
+      head,
+      leftArm,
+      rightArm,
+      leftForearm,
+      rightForearm,
+    };
+  }
+
+  private createChair(): void {
+    const chairGroup = new THREE.Group();
+
+    // Seat
+    const seatGeometry = new THREE.BoxGeometry(0.5, 0.05, 0.4);
+    const chairMaterial = new THREE.MeshPhongMaterial({
+      color: 0x444444,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const seat = new THREE.Mesh(seatGeometry, chairMaterial);
+    seat.position.set(0, 1.0, -1.5);
+    chairGroup.add(seat);
+
+    // Backrest
+    const backGeometry = new THREE.BoxGeometry(0.5, 0.4, 0.05);
+    const back = new THREE.Mesh(backGeometry, chairMaterial);
+    back.position.set(0, 1.2, -1.7);
+    chairGroup.add(back);
+
+    // Legs (4 legs)
+    const legGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1.0, 6);
+    const positions = [
+      [-0.2, 0.5, -1.35],
+      [0.2, 0.5, -1.35],
+      [-0.2, 0.5, -1.65],
+      [0.2, 0.5, -1.65],
+    ];
+
+    positions.forEach((pos) => {
+      const leg = new THREE.Mesh(legGeometry, chairMaterial);
+      leg.position.set(pos[0], pos[1], pos[2]);
+      chairGroup.add(leg);
+    });
+
+    this.scene.add(chairGroup);
+    this.chair = chairGroup;
+  }
+
+  private setupUI(): void {
+    const controlsDiv = document.createElement('div');
+    controlsDiv.id = 'display-controls';
+    controlsDiv.style.cssText = `
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 15px;
+      border: 2px solid #00ff00;
+      color: #00ff00;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      text-shadow: 2px 2px 0px #003300;
+      z-index: 100;
+    `;
+
+    controlsDiv.innerHTML = `
+      <div style="margin-bottom: 10px; font-weight: bold;">Display Mode:</div>
+      <label style="display: block; margin: 5px 0; cursor: pointer;">
+        <input type="radio" name="displayMode" value="none" checked style="margin-right: 5px;">
+        None
+      </label>
+      <label style="display: block; margin: 5px 0; cursor: pointer;">
+        <input type="radio" name="displayMode" value="sticks" style="margin-right: 5px;">
+        Sticks Only
+      </label>
+    `;
+
+    document.body.appendChild(controlsDiv);
+
+    // Add event listeners to radio buttons
+    const radios = document.querySelectorAll('input[name="displayMode"]');
+    radios.forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const target = e.target as HTMLInputElement;
+        this.displayMode = target.value as DisplayMode;
+        this.updateDisplayMode();
+      });
+    });
+  }
+
+  private updateDisplayMode(): void {
+    // Hide everything first
+    if (this.leftStick) this.leftStick.mesh.visible = false;
+    if (this.rightStick) this.rightStick.mesh.visible = false;
+    if (this.kickPedal) this.kickPedal.group.visible = false;
+    if (this.character) this.character.group.visible = false;
+    if (this.chair) this.chair.visible = false;
+
+    // Show based on mode
+    if (this.displayMode === 'sticks') {
+      if (this.leftStick) this.leftStick.mesh.visible = true;
+      if (this.rightStick) this.rightStick.mesh.visible = true;
+      if (this.kickPedal) this.kickPedal.group.visible = true;
+    }
   }
 
   private onKeyDown(event: KeyboardEvent): void {
@@ -337,6 +658,137 @@ class DrumSimulator {
 
     // Spawn particles
     this.spawnParticles(drumPiece);
+
+    // Animate drumsticks or kick pedal
+    if (drumPiece.name === 'Kick') {
+      this.animateKickPedal();
+    } else {
+      this.animateStick(drumPiece);
+    }
+  }
+
+  private animateStick(drumPiece: DrumPiece): void {
+    // Skip kick drum - it uses the pedal instead
+    if (drumPiece.name === 'Kick') return;
+
+    // Determine which stick to use based on drum position
+    const drumPosition = drumPiece.mesh.position;
+    const isLeftSide =
+      drumPiece.name === 'Hi-Hat' ||
+      drumPiece.name === 'Tom 1' ||
+      drumPiece.name === 'Snare';
+    const stick = isLeftSide ? this.leftStick : this.rightStick;
+
+    if (!stick || stick.isAnimating) return;
+
+    stick.isAnimating = true;
+    stick.animationPhase = 'down';
+    stick.animationProgress = 0;
+
+    // Calculate target position (above the drum)
+    stick.targetPosition = new THREE.Vector3(
+      drumPosition.x,
+      drumPosition.y + 0.3,
+      drumPosition.z
+    );
+  }
+
+  private animateKickPedal(): void {
+    if (!this.kickPedal || this.kickPedal.isAnimating) return;
+
+    this.kickPedal.isAnimating = true;
+    this.kickPedal.animationPhase = 'down';
+    this.kickPedal.animationProgress = 0;
+  }
+
+  private updateDrumsticks(deltaTime: number): void {
+    const sticks = [this.leftStick, this.rightStick];
+
+    sticks.forEach((stick) => {
+      if (!stick || !stick.isAnimating || !stick.targetPosition) return;
+
+      const speed = 8; // Animation speed multiplier
+      stick.animationProgress += deltaTime * speed;
+
+      if (stick.animationPhase === 'down') {
+        // Move down to drum
+        const t = Math.min(stick.animationProgress, 1);
+        // Use easing function for smooth motion
+        const eased = this.easeOutCubic(t);
+
+        stick.mesh.position.lerpVectors(
+          stick.originalPosition,
+          stick.targetPosition,
+          eased
+        );
+
+        if (t >= 1) {
+          stick.animationPhase = 'up';
+          stick.animationProgress = 0;
+        }
+      } else if (stick.animationPhase === 'up') {
+        // Move back up to original position
+        const t = Math.min(stick.animationProgress, 1);
+        const eased = this.easeInCubic(t);
+
+        stick.mesh.position.lerpVectors(
+          stick.targetPosition,
+          stick.originalPosition,
+          eased
+        );
+
+        if (t >= 1) {
+          stick.animationPhase = 'idle';
+          stick.isAnimating = false;
+          stick.targetPosition = null;
+          stick.animationProgress = 0;
+          stick.mesh.position.copy(stick.originalPosition);
+        }
+      }
+    });
+  }
+
+  private updateKickPedal(deltaTime: number): void {
+    if (!this.kickPedal || !this.kickPedal.isAnimating) return;
+
+    const speed = 12; // Faster animation for kick pedal
+    this.kickPedal.animationProgress += deltaTime * speed;
+
+    if (this.kickPedal.animationPhase === 'down') {
+      // Press down pedal
+      const t = Math.min(this.kickPedal.animationProgress, 1);
+      const eased = this.easeOutCubic(t);
+
+      // Rotate pedal downward
+      this.kickPedal.pedal.rotation.x = eased * -Math.PI / 6;
+
+      if (t >= 1) {
+        this.kickPedal.animationPhase = 'up';
+        this.kickPedal.animationProgress = 0;
+      }
+    } else if (this.kickPedal.animationPhase === 'up') {
+      // Release pedal back up
+      const t = Math.min(this.kickPedal.animationProgress, 1);
+      const eased = this.easeInCubic(t);
+
+      // Rotate back to original
+      this.kickPedal.pedal.rotation.x = (1 - eased) * -Math.PI / 6;
+
+      if (t >= 1) {
+        this.kickPedal.animationPhase = 'idle';
+        this.kickPedal.isAnimating = false;
+        this.kickPedal.animationProgress = 0;
+        this.kickPedal.pedal.rotation.copy(this.kickPedal.originalRotation);
+      }
+    }
+  }
+
+  private easeOutCubic(t: number): number {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  private easeInCubic(t: number): number {
+    return t * t * t;
   }
 
   private spawnParticles(drumPiece: DrumPiece): void {
@@ -640,6 +1092,12 @@ class DrumSimulator {
 
     // Update particles
     this.updateParticles(deltaTime);
+
+    // Update drumstick animations
+    this.updateDrumsticks(deltaTime);
+
+    // Update kick pedal animation
+    this.updateKickPedal(deltaTime);
 
     this.renderer.render(this.scene, this.camera);
   }
