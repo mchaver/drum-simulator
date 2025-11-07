@@ -48,6 +48,16 @@ interface Character {
   rightForearm: THREE.Mesh;
 }
 
+// Kick pedal interface
+interface KickPedal {
+  group: THREE.Group;
+  pedal: THREE.Mesh;
+  originalRotation: THREE.Euler;
+  isAnimating: boolean;
+  animationProgress: number;
+  animationPhase: 'down' | 'up' | 'idle';
+}
+
 class DrumSimulator {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -69,6 +79,7 @@ class DrumSimulator {
   private rightStick: Drumstick | null = null;
   private character: Character | null = null;
   private chair: THREE.Group | null = null;
+  private kickPedal: KickPedal | null = null;
 
   constructor() {
     // Scene setup
@@ -110,6 +121,7 @@ class DrumSimulator {
 
     // Create character system
     this.createDrumsticks();
+    this.createKickPedal();
     this.createCharacter();
     this.createChair();
     this.updateDisplayMode();
@@ -152,8 +164,8 @@ class DrumSimulator {
   }
 
   private createDrumSet(): void {
-    // Kick drum - on ground, centered
-    this.createDrum(0, 0.4, -0.8, 0.45, 0.5, 0xff4444, 'Q', 'Kick', 0, 0);
+    // Kick drum - on ground, centered, upright
+    this.createDrum(0, 0.5, -0.8, 0.45, 0.6, 0xff4444, 'Q', 'Kick', Math.PI / 2, 0);
 
     // Snare - between legs, slightly left, angled up toward drummer
     this.createDrum(-0.35, 0.95, -0.5, 0.35, 0.25, 0xcccccc, 'W', 'Snare', Math.PI / 12, 0);
@@ -331,6 +343,54 @@ class DrumSimulator {
     };
   }
 
+  private createKickPedal(): void {
+    const pedalGroup = new THREE.Group();
+
+    // Pedal base plate (on ground)
+    const baseGeometry = new THREE.BoxGeometry(0.15, 0.02, 0.25);
+    const metalMaterial = new THREE.MeshPhongMaterial({
+      color: 0x888888,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const base = new THREE.Mesh(baseGeometry, metalMaterial);
+    base.position.set(0, 0.01, -0.4);
+    pedalGroup.add(base);
+
+    // Pedal plate (the part you step on)
+    const pedalGeometry = new THREE.BoxGeometry(0.12, 0.02, 0.15);
+    const pedal = new THREE.Mesh(pedalGeometry, metalMaterial);
+    pedal.position.set(0, 0.03, -0.35);
+    pedalGroup.add(pedal);
+
+    // Beater rod (connects to drum)
+    const rodGeometry = new THREE.CylinderGeometry(0.01, 0.01, 0.4, 6);
+    const rod = new THREE.Mesh(rodGeometry, metalMaterial);
+    rod.position.set(0, 0.2, -0.5);
+    rod.rotation.x = -Math.PI / 3;
+    pedalGroup.add(rod);
+
+    // Beater head (hits the drum)
+    const beaterGeometry = new THREE.SphereGeometry(0.03, 6, 6);
+    const beaterMaterial = new THREE.MeshPhongMaterial({
+      color: 0xffdddd,
+      ...PS1_MATERIAL_CONFIG,
+    });
+    const beater = new THREE.Mesh(beaterGeometry, beaterMaterial);
+    beater.position.set(0, 0.35, -0.65);
+    pedalGroup.add(beater);
+
+    this.scene.add(pedalGroup);
+
+    this.kickPedal = {
+      group: pedalGroup,
+      pedal,
+      originalRotation: pedal.rotation.clone(),
+      isAnimating: false,
+      animationProgress: 0,
+      animationPhase: 'idle',
+    };
+  }
+
   private createCharacter(): void {
     const characterGroup = new THREE.Group();
 
@@ -485,6 +545,7 @@ class DrumSimulator {
     // Hide everything first
     if (this.leftStick) this.leftStick.mesh.visible = false;
     if (this.rightStick) this.rightStick.mesh.visible = false;
+    if (this.kickPedal) this.kickPedal.group.visible = false;
     if (this.character) this.character.group.visible = false;
     if (this.chair) this.chair.visible = false;
 
@@ -492,9 +553,11 @@ class DrumSimulator {
     if (this.displayMode === 'sticks') {
       if (this.leftStick) this.leftStick.mesh.visible = true;
       if (this.rightStick) this.rightStick.mesh.visible = true;
+      if (this.kickPedal) this.kickPedal.group.visible = true;
     } else if (this.displayMode === 'character') {
       if (this.leftStick) this.leftStick.mesh.visible = true;
       if (this.rightStick) this.rightStick.mesh.visible = true;
+      if (this.kickPedal) this.kickPedal.group.visible = true;
       if (this.character) this.character.group.visible = true;
       if (this.chair) this.chair.visible = true;
     }
@@ -606,11 +669,18 @@ class DrumSimulator {
     // Spawn particles
     this.spawnParticles(drumPiece);
 
-    // Animate drumsticks
-    this.animateStick(drumPiece);
+    // Animate drumsticks or kick pedal
+    if (drumPiece.name === 'Kick') {
+      this.animateKickPedal();
+    } else {
+      this.animateStick(drumPiece);
+    }
   }
 
   private animateStick(drumPiece: DrumPiece): void {
+    // Skip kick drum - it uses the pedal instead
+    if (drumPiece.name === 'Kick') return;
+
     // Determine which stick to use based on drum position
     const drumPosition = drumPiece.mesh.position;
     const isLeftSide =
@@ -636,6 +706,14 @@ class DrumSimulator {
     if (this.displayMode === 'character' && this.character) {
       this.animateArm(isLeftSide, 180);
     }
+  }
+
+  private animateKickPedal(): void {
+    if (!this.kickPedal || this.kickPedal.isAnimating) return;
+
+    this.kickPedal.isAnimating = true;
+    this.kickPedal.animationPhase = 'down';
+    this.kickPedal.animationProgress = 0;
   }
 
   private updateDrumsticks(deltaTime: number): void {
@@ -683,6 +761,41 @@ class DrumSimulator {
         }
       }
     });
+  }
+
+  private updateKickPedal(deltaTime: number): void {
+    if (!this.kickPedal || !this.kickPedal.isAnimating) return;
+
+    const speed = 12; // Faster animation for kick pedal
+    this.kickPedal.animationProgress += deltaTime * speed;
+
+    if (this.kickPedal.animationPhase === 'down') {
+      // Press down pedal
+      const t = Math.min(this.kickPedal.animationProgress, 1);
+      const eased = this.easeOutCubic(t);
+
+      // Rotate pedal downward
+      this.kickPedal.pedal.rotation.x = eased * -Math.PI / 6;
+
+      if (t >= 1) {
+        this.kickPedal.animationPhase = 'up';
+        this.kickPedal.animationProgress = 0;
+      }
+    } else if (this.kickPedal.animationPhase === 'up') {
+      // Release pedal back up
+      const t = Math.min(this.kickPedal.animationProgress, 1);
+      const eased = this.easeInCubic(t);
+
+      // Rotate back to original
+      this.kickPedal.pedal.rotation.x = (1 - eased) * -Math.PI / 6;
+
+      if (t >= 1) {
+        this.kickPedal.animationPhase = 'idle';
+        this.kickPedal.isAnimating = false;
+        this.kickPedal.animationProgress = 0;
+        this.kickPedal.pedal.rotation.copy(this.kickPedal.originalRotation);
+      }
+    }
   }
 
   private easeOutCubic(t: number): number {
@@ -1020,6 +1133,9 @@ class DrumSimulator {
 
     // Update drumstick animations
     this.updateDrumsticks(deltaTime);
+
+    // Update kick pedal animation
+    this.updateKickPedal(deltaTime);
 
     this.renderer.render(this.scene, this.camera);
   }
