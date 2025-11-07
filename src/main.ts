@@ -401,69 +401,227 @@ class DrumSimulator {
     }
   }
 
+  private createNoiseBuffer(): AudioBuffer {
+    const bufferSize = this.audioContext.sampleRate * 2;
+    const buffer = this.audioContext.createBuffer(
+      1,
+      bufferSize,
+      this.audioContext.sampleRate
+    );
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    return buffer;
+  }
+
   private playSound(drumName: string): void {
-    // Create a simple synthesized drum sound
     const now = this.audioContext.currentTime;
-    const oscillator = this.audioContext.createOscillator();
-    const gainNode = this.audioContext.createGain();
 
-    oscillator.connect(gainNode);
-    gainNode.connect(this.audioContext.destination);
-
-    // Different sounds for different drums
     switch (drumName) {
       case 'Kick':
-        oscillator.frequency.setValueAtTime(150, now);
-        oscillator.frequency.exponentialRampToValueAtTime(0.01, now + 0.5);
-        gainNode.gain.setValueAtTime(1, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        this.playKick(now);
         break;
       case 'Snare':
-        oscillator.type = 'triangle';
-        oscillator.frequency.setValueAtTime(200, now);
-        gainNode.gain.setValueAtTime(0.7, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        this.playSnare(now);
         break;
       case 'Hi-Hat':
-        oscillator.type = 'square';
-        oscillator.frequency.setValueAtTime(8000, now);
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        this.playHiHat(now);
         break;
       case 'Tom 1':
-        oscillator.frequency.setValueAtTime(180, now);
-        oscillator.frequency.exponentialRampToValueAtTime(0.01, now + 0.4);
-        gainNode.gain.setValueAtTime(0.8, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        this.playTom(now, 200, 0.4);
         break;
       case 'Tom 2':
-        oscillator.frequency.setValueAtTime(140, now);
-        oscillator.frequency.exponentialRampToValueAtTime(0.01, now + 0.4);
-        gainNode.gain.setValueAtTime(0.8, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        this.playTom(now, 150, 0.45);
         break;
       case 'Floor Tom':
-        oscillator.frequency.setValueAtTime(100, now);
-        oscillator.frequency.exponentialRampToValueAtTime(0.01, now + 0.5);
-        gainNode.gain.setValueAtTime(0.9, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        this.playTom(now, 110, 0.5);
         break;
       case 'Crash':
-        oscillator.type = 'square';
-        oscillator.frequency.setValueAtTime(4000, now);
-        gainNode.gain.setValueAtTime(0.5, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+        this.playCrash(now);
         break;
       case 'Ride':
-        oscillator.type = 'square';
-        oscillator.frequency.setValueAtTime(3000, now);
-        gainNode.gain.setValueAtTime(0.4, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+        this.playRide(now);
         break;
     }
+  }
 
-    oscillator.start(now);
-    oscillator.stop(now + 1);
+  private playKick(time: number): void {
+    // Layered oscillators for punchy kick
+    const osc1 = this.audioContext.createOscillator();
+    const osc2 = this.audioContext.createOscillator();
+    const gainNode = this.audioContext.createGain();
+    const filter = this.audioContext.createBiquadFilter();
+
+    osc1.type = 'sine';
+    osc2.type = 'sine';
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(120, time);
+    filter.Q.setValueAtTime(1, time);
+
+    // Main low frequency
+    osc1.frequency.setValueAtTime(150, time);
+    osc1.frequency.exponentialRampToValueAtTime(40, time + 0.5);
+
+    // Sub frequency for depth
+    osc2.frequency.setValueAtTime(75, time);
+    osc2.frequency.exponentialRampToValueAtTime(20, time + 0.5);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+
+    gainNode.gain.setValueAtTime(1.2, time);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + 0.5);
+    osc2.stop(time + 0.5);
+  }
+
+  private playSnare(time: number): void {
+    // Tone component (body)
+    const osc = this.audioContext.createOscillator();
+    const oscGain = this.audioContext.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, time);
+
+    osc.connect(oscGain);
+    oscGain.connect(this.audioContext.destination);
+
+    oscGain.gain.setValueAtTime(0.3, time);
+    oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+    osc.start(time);
+    osc.stop(time + 0.2);
+
+    // Noise component (snares)
+    const noise = this.audioContext.createBufferSource();
+    noise.buffer = this.createNoiseBuffer();
+
+    const noiseFilter = this.audioContext.createBiquadFilter();
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.setValueAtTime(1000, time);
+
+    const noiseGain = this.audioContext.createGain();
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.audioContext.destination);
+
+    noiseGain.gain.setValueAtTime(0.5, time);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.15);
+
+    noise.start(time);
+    noise.stop(time + 0.2);
+  }
+
+  private playHiHat(time: number): void {
+    // Pure noise with tight high-pass filter
+    const noise = this.audioContext.createBufferSource();
+    noise.buffer = this.createNoiseBuffer();
+
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(7000, time);
+    filter.Q.setValueAtTime(1, time);
+
+    const gainNode = this.audioContext.createGain();
+
+    noise.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+
+    gainNode.gain.setValueAtTime(0.3, time);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.08);
+
+    noise.start(time);
+    noise.stop(time + 0.1);
+  }
+
+  private playTom(time: number, frequency: number, duration: number): void {
+    // Two layered oscillators for fuller tom sound
+    const osc1 = this.audioContext.createOscillator();
+    const osc2 = this.audioContext.createOscillator();
+    const gainNode = this.audioContext.createGain();
+    const filter = this.audioContext.createBiquadFilter();
+
+    osc1.type = 'sine';
+    osc2.type = 'sine';
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, time);
+
+    osc1.frequency.setValueAtTime(frequency, time);
+    osc1.frequency.exponentialRampToValueAtTime(frequency * 0.3, time + duration);
+
+    osc2.frequency.setValueAtTime(frequency * 1.5, time);
+    osc2.frequency.exponentialRampToValueAtTime(
+      frequency * 0.5,
+      time + duration
+    );
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+
+    gainNode.gain.setValueAtTime(0.9, time);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, time + duration);
+
+    osc1.start(time);
+    osc2.start(time);
+    osc1.stop(time + duration);
+    osc2.stop(time + duration);
+  }
+
+  private playCrash(time: number): void {
+    // Multiple oscillators and noise for cymbal complexity
+    const noise = this.audioContext.createBufferSource();
+    noise.buffer = this.createNoiseBuffer();
+
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(3000, time);
+    filter.Q.setValueAtTime(0.5, time);
+
+    const gainNode = this.audioContext.createGain();
+
+    noise.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+
+    gainNode.gain.setValueAtTime(0.5, time);
+    gainNode.gain.exponentialRampToValueAtTime(0.3, time + 0.1);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, time + 1.2);
+
+    noise.start(time);
+    noise.stop(time + 1.5);
+  }
+
+  private playRide(time: number): void {
+    // Metallic tone with noise
+    const noise = this.audioContext.createBufferSource();
+    noise.buffer = this.createNoiseBuffer();
+
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(4000, time);
+    filter.Q.setValueAtTime(2, time);
+
+    const gainNode = this.audioContext.createGain();
+
+    noise.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(this.audioContext.destination);
+
+    gainNode.gain.setValueAtTime(0.4, time);
+    gainNode.gain.exponentialRampToValueAtTime(0.2, time + 0.1);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.8);
+
+    noise.start(time);
+    noise.stop(time + 1);
   }
 
   private onWindowResize(): void {

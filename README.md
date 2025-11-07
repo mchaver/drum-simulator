@@ -9,7 +9,7 @@ A simple PS1-style drum simulator built with TypeScript and Three.js.
 - **Keyboard Controls**: Play drums using Q, W, E, A, S, D, F, R keys
 - **Mouse Interaction**: Click on drums to play them
 - **Interactive Camera**: Right-click drag to orbit camera, scroll wheel to zoom
-- **Synthesized Sound**: Web Audio API generates drum sounds on the fly
+- **Realistic Synthesized Sound**: Advanced Web Audio API synthesis with layered oscillators, noise generators, and filters
 - **Visual Feedback**: Drums animate, flash, and emit particles when hit
 - **Particle Effects**: PS1-style cube particles with physics and fade-out
 
